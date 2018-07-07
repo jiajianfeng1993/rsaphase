@@ -1,0 +1,109 @@
+package com.jingdata.pay;
+
+import org.apache.commons.codec.binary.Base64;
+import sun.misc.BASE64Decoder;
+import sun.security.util.DerInputStream;
+import sun.security.util.DerValue;
+
+import java.io.BufferedReader;
+import java.io.FileReader;
+import java.math.BigInteger;
+import java.security.KeyFactory;
+import java.security.NoSuchAlgorithmException;
+import java.security.PrivateKey;
+import java.security.PublicKey;
+import java.security.interfaces.RSAPublicKey;
+import java.security.spec.InvalidKeySpecException;
+import java.security.spec.KeySpec;
+import java.security.spec.RSAPrivateCrtKeySpec;
+import java.security.spec.RSAPublicKeySpec;
+import java.util.Arrays;
+
+public class RsaPhaseKey {
+
+    public static void main(String[] args) throws Exception {
+//        decodePublicKey(getFileBytes("C:/Users/BJQXDN0509/.ssh/id_rsa.pub"));
+        //源文件为.ssh/id_rsa.pub，去掉多余信息只留下base编码后的文字
+        String key="AAAAB3NzaC1yc2EAAAADAQABAAABAQDoyO2A6AbHscbM+aNJzDe1aQJEUVIDSLaapEeGnK83lqtB5pv9UpG0EQ4UfUudqTKcaPF6dlI3mtf1THoGILhhvcInoQOz+eKxhnqpliJvSXzS783N5Af1riaOp4kNxbgxXw0HQwFAr+NnEqmf5yOPt6r1WWSkWKH3qQzDyAxs6mxaRhzuIQlg1oohd36H4TvBRZHUjONiSVwfkOdLVzPscjNRSok4i+oWra9qBcgKZhSBj5Z7rpn15l8hX5vb9oGDhcmVvVp5qO/m/Gm55Jy+YhBtCl/Ums1DK9BjhX6wf0OAGc31HVqKa7adgEHmoJ1VacBZTSrrRqFp50I9IdWR";
+        byte[] bytes = Base64.decodeBase64(key);
+        RSAPublicKey publicKey = decodePublicKey(bytes);
+        System.out.println(publicKey.getModulus());
+        System.out.println(publicKey.getPublicExponent());
+
+        PrivateKey localPrivateKey = getLocalPrivateKey();
+    }
+
+    public static RSAPublicKey decodePublicKey(byte[] key) throws NoSuchAlgorithmException, InvalidKeySpecException {
+        //公钥前11位统一样
+        byte[] sshrsa = new byte[] { 0, 0, 0, 7, 's', 's', 'h', '-', 'r', 's',
+                'a' };
+        int start_index = sshrsa.length;
+        int len = decodeUInt32(key, start_index);
+        start_index += 4;
+        byte[] pe_b = new byte[len];
+        for(int i= 0 ; i < len; i++){
+            pe_b[i] = key[start_index++];
+        }
+        BigInteger pe = new BigInteger(pe_b);
+		/* Decode the modulus */
+        len = decodeUInt32(key, start_index);
+        start_index += 4;
+        byte[] md_b = new byte[len];
+        for(int i = 0 ; i < len; i++){
+            md_b[i] = key[start_index++];
+        }
+        BigInteger md = new BigInteger(md_b);
+        KeyFactory keyFactory = KeyFactory.getInstance("RSA");
+        KeySpec ks = new RSAPublicKeySpec(md, pe);
+        return (RSAPublicKey) keyFactory.generatePublic(ks);
+    }
+    public static int decodeUInt32(byte[] key, int start_index){
+        byte[] test = Arrays.copyOfRange(key, start_index, start_index + 4);
+        return new BigInteger(test).intValue();
+//      int int_24 = (key[start_index++] << 24) & 0xff;
+//      int int_16 = (key[start_index++] << 16) & 0xff;
+//      int int_8 = (key[start_index++] << 8) & 0xff;
+//      int int_0 = key[start_index++] & 0xff;
+//      return int_24 + int_16 + int_8 + int_0;
+    }
+    //得到私钥
+    public static PrivateKey getLocalPrivateKey() throws Exception {
+        String keyinfo = "";
+        String line = null;
+        //去掉文件头尾的注释信息
+        BufferedReader br = new BufferedReader(new FileReader("C:\\Users\\BJQXDN0509\\.ssh\\id_rsa"));
+        while ((line = br.readLine()) != null) {
+            if (line.indexOf("---") == -1) {
+                keyinfo += line;
+            }
+        }
+        //密钥信息用 BASE64 编码加密过，需要先解密
+        byte[] decodeKeyinfo = (new BASE64Decoder()).decodeBuffer(keyinfo);
+        //使用 DerInputStream 读取密钥信息
+        DerInputStream dis = new DerInputStream(decodeKeyinfo);
+        //密钥不含 otherPrimeInfos 信息，故只有 9 段
+        DerValue[] ders = dis.getSequence(9);
+        //依次读取 RSA 因子信息
+        int version = ders[0].getBigInteger().intValue();
+        BigInteger modulus = ders[1].getBigInteger();
+        BigInteger publicExponent = ders[2].getBigInteger();
+        BigInteger privateExponent = ders[3].getBigInteger();
+        BigInteger primeP = ders[4].getBigInteger();
+        BigInteger primeQ = ders[5].getBigInteger();
+        BigInteger primeExponentP = ders[6].getBigInteger();
+        BigInteger primeExponentQ = ders[7].getBigInteger();
+        BigInteger crtCoefficient = ders[8].getBigInteger();
+        //generate public key and private key
+        KeyFactory keyFactory = KeyFactory.getInstance("RSA");
+        RSAPublicKeySpec rsaPublicKeySpec =
+                new RSAPublicKeySpec(modulus, publicExponent);
+        PublicKey publicKey = keyFactory.generatePublic(rsaPublicKeySpec);
+        RSAPrivateCrtKeySpec rsaPrivateKeySpec =
+                new RSAPrivateCrtKeySpec(modulus, publicExponent, privateExponent,
+                        primeP, primeQ, primeExponentP, primeExponentQ, crtCoefficient);
+        PrivateKey privateKey = keyFactory.generatePrivate(rsaPrivateKeySpec);
+        System.out.println(modulus);
+        System.out.println(publicExponent);
+        return privateKey;
+    }
+}
